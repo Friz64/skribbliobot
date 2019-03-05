@@ -25,5 +25,5 @@ pub fn start() {
         });
     });
 
-    println!("Close program with Escape");
+    println!("=> Close program with Escape");
 }

@@ -5,13 +5,17 @@ use image::{
 };
 pub type Image = ImageBuffer<image::Rgb<u8>, Vec<u8>>;
 
-pub fn convert(image: DynamicImage, dither: bool, width: u32, height: u32) -> Image {
+pub fn convert(image: DynamicImage, dither: bool, scale: f32, width: u32, height: u32) -> Image {
     let rgba = image.to_rgba();
 
     // canvas is x814y611, but a pixel is 3x3
     let (thumbnail_x, thumbnail_y) =
         resize_dimensions(rgba.width(), rgba.height(), width / 3, height / 3, false);
-    let thumbnail = imageops::thumbnail(&rgba, thumbnail_x, thumbnail_y);
+    let thumbnail = imageops::thumbnail(
+        &rgba,
+        (thumbnail_x as f32 * scale) as u32,
+        (thumbnail_y as f32 * scale) as u32,
+    );
     let mut rgb = ImageBuffer::new(thumbnail.width(), thumbnail.height());
 
     for (rgb_pixel, thumbnail_pixel) in rgb.pixels_mut().zip(thumbnail.pixels()) {

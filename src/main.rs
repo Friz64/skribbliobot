@@ -11,8 +11,7 @@ use image::{DynamicImage, ImageFormat};
 use std::process::{self, Command};
 
 fn main() {
-    let (drawing_area, color_box, dither, checkerboard, batch_colors, delay, timeout) =
-        cli::get_cli();
+    let (drawing_area, color_box, dither, checkerboard, delay, scale) = cli::get_cli();
 
     closing_thread::start();
 
@@ -21,15 +20,18 @@ fn main() {
         drawing_area.x,
         drawing_area.y,
         checkerboard,
-        batch_colors,
         delay,
-        timeout,
         color_box,
     );
 
     let image = image_from_clipboard();
-    let converted =
-        image_converter::convert(image, dither, drawing_area.width, drawing_area.height);
+    let converted = image_converter::convert(
+        image,
+        dither,
+        scale,
+        drawing_area.width,
+        drawing_area.height,
+    );
 
     drawer.draw(&desktop, &converted);
 }

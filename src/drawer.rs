@@ -55,71 +55,29 @@ pub struct Drawer {
     xoff: u32,
     yoff: u32,
     checkerboard: bool,
-    batch_colors: bool,
     delay: u64,
-    timeout: u64,
-    color_map: HashMap<Color, ColorCoord>,
+    color_coords: HashMap<Color, ColorCoord>,
     last_color: ColorCoord,
 }
 
 impl Drawer {
-    pub fn new(
-        xoff: u32,
-        yoff: u32,
-        checkerboard: bool,
-        batch_colors: bool,
-        delay: u64,
-        timeout: u64,
-        color_box: Box,
-    ) -> Drawer {
+    pub fn new(xoff: u32, yoff: u32, checkerboard: bool, delay: u64, color_box: Box) -> Drawer {
         Drawer {
             xoff,
             yoff,
             checkerboard,
-            batch_colors,
             delay,
-            timeout,
-            color_map: calculate_color_positions(color_box),
+            color_coords: calculate_color_positions(color_box),
             last_color: ColorCoord { x: 0, y: 0 },
         }
     }
 
-    fn draw_color(&mut self, desktop: &Desktop, color: Color, x: u32, y: u32) {
-        if color == WHITE {
-            return;
-        }
-
-        let color_coord = self.color_map[&color];
-
-        // color changed
-        if color_coord != self.last_color {
-            self.last_color = color_coord;
-
-            // pick color
-            desktop.move_cursor(color_coord.x, color_coord.y);
-            desktop.left_click(ClickType::Once);
-
-            thread::sleep(Duration::from_millis(self.delay));
-        }
-
-        // continue drawing with new color
-        desktop.move_cursor(self.xoff + (x * 3) + 1, self.yoff + (y * 3) + 1);
-        desktop.left_click(ClickType::Once);
-
-        thread::sleep(Duration::from_millis(self.delay));
-    }
-
-    fn draw_internal(&mut self, desktop: &Desktop, image: &Image, map_color: Option<Color>) {
-        if let Some(map_color) = &map_color {
-            println!("Started drawing color {:?}", map_color);
-        }
+    pub fn draw(&mut self, desktop: &Desktop, image: &Image) {
+        let mut draw_queue = DrawQueue::new();
 
         if self.checkerboard {
-            println!("Drawing first half");
             for y in 0..image.height() {
-                let y_even = y % 2 == 0;
-                let start = u32::from(y_even as u8);
-
+                let start = 1 - (y % 2);
                 for x in (start..image.width()).step_by(2) {
                     let pixel = image.get_pixel(x, y).to_rgb();
                     let color = Color {
@@ -128,19 +86,14 @@ impl Drawer {
                         b: pixel[2],
                     };
 
-                    if let Some(map_color) = &map_color {
-                        if map_color == &color {
-                            self.draw_color(desktop, color, x, y);
-                        }
-                    }
+                    draw_queue.push(DrawInfo { x, y, color });
                 }
             }
 
-            println!("Drawing second half");
-            for y in 0..image.height() {
-                let y_even = y % 2 == 0;
-                let start = u32::from(y_even as u8) + 1;
+            draw_queue.draw(desktop, self);
 
+            for y in 0..image.height() {
+                let start = y % 2;
                 for x in (start..image.width()).step_by(2) {
                     let pixel = image.get_pixel(x, y).to_rgb();
                     let color = Color {
@@ -149,13 +102,11 @@ impl Drawer {
                         b: pixel[2],
                     };
 
-                    if let Some(map_color) = &map_color {
-                        if map_color == &color {
-                            self.draw_color(desktop, color, x, y);
-                        }
-                    }
+                    draw_queue.push(DrawInfo { x, y, color });
                 }
             }
+
+            draw_queue.draw(desktop, self);
         } else {
             for y in 0..image.height() {
                 for x in 0..image.width() {
@@ -166,41 +117,68 @@ impl Drawer {
                         b: pixel[2],
                     };
 
-                    if let Some(map_color) = &map_color {
-                        if map_color == &color {
-                            self.draw_color(desktop, color, x, y);
-                        }
-                    }
+                    draw_queue.push(DrawInfo { x, y, color });
                 }
             }
+
+            draw_queue.draw(desktop, self);
         }
 
-        println!("Drawing finished");
+        println!("=> Drawing finished");
+    }
+}
+
+struct DrawInfo {
+    x: u32,
+    y: u32,
+    color: Color,
+}
+
+struct DrawQueue {
+    queue: Vec<DrawInfo>,
+}
+
+impl DrawQueue {
+    fn new() -> DrawQueue {
+        DrawQueue { queue: Vec::new() }
     }
 
-    pub fn draw(&mut self, desktop: &Desktop, image: &Image) {
-        let timeout = self.timeout;
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(timeout));
-            println!("Drawing timed out");
-            std::process::exit(1);
+    fn push(&mut self, info: DrawInfo) {
+        self.queue.insert(0, info);
+    }
+
+    fn draw(&mut self, desktop: &Desktop, drawer: &mut Drawer) {
+        self.queue.sort_by(|a, b| {
+            (b.color.r + b.color.g + b.color.b).cmp(&(a.color.r + a.color.g + a.color.b))
         });
 
-        if self.batch_colors {
-            let mut keys: Vec<_> = self.color_map.keys().cloned().collect();
-
-            // makes sure the darkest colors are drawn first
-            keys.sort_by(|a, b| (a.r + a.g + a.b).cmp(&(b.r + b.g + b.b)));
-
-            for map_color in keys {
-                if map_color == WHITE {
-                    continue;
-                }
-
-                self.draw_internal(desktop, image, Some(map_color));
+        while let Some(info) = self.queue.pop() {
+            // draw
+            if info.color == WHITE {
+                return;
             }
-        } else {
-            self.draw_internal(desktop, image, None);
+
+            let color_coord = drawer.color_coords[&info.color];
+
+            // color changed
+            if color_coord != drawer.last_color {
+                drawer.last_color = color_coord;
+
+                // pick color
+                desktop.move_cursor(color_coord.x, color_coord.y);
+                desktop.left_click(ClickType::Once);
+
+                thread::sleep(Duration::from_millis(drawer.delay));
+            }
+
+            // continue drawing with new color
+            desktop.move_cursor(
+                drawer.xoff + (info.x * 3) + 1,
+                drawer.yoff + (info.y * 3) + 1,
+            );
+            desktop.left_click(ClickType::Once);
+
+            thread::sleep(Duration::from_millis(drawer.delay));
         }
     }
 }

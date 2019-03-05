@@ -8,7 +8,7 @@ pub struct Box {
     pub height: u32,
 }
 
-pub fn get_cli() -> (Box, Box, bool, bool, bool, u64, u64) {
+pub fn get_cli() -> (Box, Box, bool, bool, u64, f32) {
     let clap = App::new("skribbl.io bot")
         .about("A skribbl.io drawing bot, reading an image from the clipboard and drawing it into skribbl.io")
         .arg(
@@ -40,12 +40,6 @@ pub fn get_cli() -> (Box, Box, bool, bool, bool, u64, u64) {
                 .help("Draw in two stages using a checkerboard pattern"),
         )
         .arg(
-            Arg::with_name("no_batch_colors")
-                .long("no-batch-colors")
-                .takes_value(false)
-                .help("Disables drawing colors in a batch"),
-        )
-        .arg(
             Arg::with_name("delay")
                 .long("delay")
                 .short("s")
@@ -53,11 +47,10 @@ pub fn get_cli() -> (Box, Box, bool, bool, bool, u64, u64) {
                 .help("Drawing delay in ms, too low values may slow down browser"),
         )
         .arg(
-            Arg::with_name("timeout")
-                .long("timeout")
-                .short("t")
-                .default_value("55")
-                .help("Timeout in seconds after which to quit drawing"),
+            Arg::with_name("scale")
+                .long("scale")
+                .default_value("1.0")
+                .help("Scaling of the image where 1.0 is 100%"),
         )
         .get_matches();
 
@@ -108,7 +101,6 @@ pub fn get_cli() -> (Box, Box, bool, bool, bool, u64, u64) {
 
     let dither = clap.is_present("dither");
     let checkerboard = clap.is_present("checkerboard");
-    let batch_colors = !clap.is_present("no_batch_colors");
     let delay: u64 = match clap.value_of("delay").unwrap().parse() {
         Ok(delay) => delay,
         Err(err) => {
@@ -116,21 +108,13 @@ pub fn get_cli() -> (Box, Box, bool, bool, bool, u64, u64) {
             process::exit(1);
         }
     };
-    let timeout: u64 = match clap.value_of("timeout").unwrap().parse() {
-        Ok(timeout) => timeout,
+    let scale: f32 = match clap.value_of("scale").unwrap().parse() {
+        Ok(scale) => scale,
         Err(err) => {
-            println!("Failed to parse timeout: {}", err);
+            println!("Failed to parse scale: {}", err);
             process::exit(1);
         }
     };
 
-    (
-        drawing_area,
-        color_box,
-        dither,
-        checkerboard,
-        batch_colors,
-        delay,
-        timeout,
-    )
+    (drawing_area, color_box, dither, checkerboard, delay, scale)
 }
