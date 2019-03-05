@@ -1,0 +1,11 @@
+[package]
+name = "skribbliobot"
+version = "0.1.0"
+authors = ["Friz64 <friz64mc@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+x11 = { version = "2.18", features = ["xlib", "xtest"] }
+image = "0.21"
+clap = "2.32"
+winit = "0.18"
