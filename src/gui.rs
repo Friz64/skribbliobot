@@ -253,62 +253,61 @@ impl GUI {
 
                 let status = gui.status.clone();
 
-                if !GUI::is_ready(gui.clone()) {
-                    GUI::set_status(&status, "Enter positions");
-                    return;
-                }
+                if GUI::is_ready(gui.clone()) {
+                    let drawer_running = drawer_running.clone();
+                    let settings = gui.settings.borrow().clone();
+                    let desktop = gui.desktop.clone();
 
-                let drawer_running = drawer_running.clone();
-                let settings = gui.settings.borrow().clone();
-                let desktop = gui.desktop.clone();
-
-                let drawing_area = Box {
-                    x: settings.drawing_x,
-                    y: settings.drawing_y,
-                    width: settings.drawing_width,
-                    height: settings.drawing_height,
-                };
-
-                let color_box = Box {
-                    x: settings.color_x,
-                    y: settings.color_y,
-                    width: settings.color_width,
-                    height: settings.color_height,
-                };
-
-                thread::spawn(move || {
-                    let mut drawer = Drawer::new(
-                        drawing_area,
-                        color_box,
-                        settings.checkerboard,
-                        settings.delay as u64,
-                    );
-
-                    match image_converter::image_from_clipboard() {
-                        Ok(image) => {
-                            let converted = image_converter::convert(
-                                image,
-                                settings.dither,
-                                settings.scale,
-                                settings.drawing_width,
-                                settings.drawing_height,
-                            );
-
-                            GUI::set_status(&status, "Drawing - Cancel with ESC");
-
-                            let desktop_lock = desktop.lock().unwrap();
-
-                            drawer_running.store(true, Ordering::Relaxed);
-                            drawer.draw(&desktop_lock, &converted, drawer_running.clone());
-                            drawer_running.store(false, Ordering::Relaxed);
-
-                            GUI::set_status(&status, "Idle");
-                        }
-                        Err(err) => {
-                            GUI::set_status(&status, &err.to_string());
-                        }
+                    let drawing_area = Box {
+                        x: settings.drawing_x,
+                        y: settings.drawing_y,
+                        width: settings.drawing_width,
+                        height: settings.drawing_height,
                     };
-                });
+
+                    let color_box = Box {
+                        x: settings.color_x,
+                        y: settings.color_y,
+                        width: settings.color_width,
+                        height: settings.color_height,
+                    };
+
+                    thread::spawn(move || {
+                        let mut drawer = Drawer::new(
+                            drawing_area,
+                            color_box,
+                            settings.checkerboard,
+                            settings.delay as u64,
+                        );
+
+                        match image_converter::image_from_clipboard() {
+                            Ok(image) => {
+                                let converted = image_converter::convert(
+                                    image,
+                                    settings.dither,
+                                    settings.scale,
+                                    settings.drawing_width,
+                                    settings.drawing_height,
+                                );
+
+                                GUI::set_status(&status, "Drawing - Cancel with ESC");
+
+                                let desktop_lock = desktop.lock().unwrap();
+
+                                drawer_running.store(true, Ordering::Relaxed);
+                                drawer.draw(&desktop_lock, &converted, drawer_running.clone());
+                                drawer_running.store(false, Ordering::Relaxed);
+
+                                GUI::set_status(&status, "Idle");
+                            }
+                            Err(err) => {
+                                GUI::set_status(&status, &err.to_string());
+                            }
+                        };
+                    });
+                } else {
+                    GUI::set_status(&status, "Please enter positions");
+                }
             }
         });
     }
