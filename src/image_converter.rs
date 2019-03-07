@@ -1,11 +1,13 @@
 use crate::colors::*;
 use image::{
     imageops::{self, colorops::ColorMap},
-    DynamicImage, ImageBuffer, Pixel, Rgb,
+    DynamicImage, ImageBuffer, ImageFormat, Pixel, Rgb,
 };
+use std::process::Command;
+
 pub type Image = ImageBuffer<image::Rgb<u8>, Vec<u8>>;
 
-pub fn convert(image: DynamicImage, dither: bool, scale: f32, width: u32, height: u32) -> Image {
+pub fn convert(image: DynamicImage, dither: bool, scale: f64, width: u32, height: u32) -> Image {
     let rgba = image.to_rgba();
 
     // canvas is x814y611, but a pixel is 3x3
@@ -13,8 +15,8 @@ pub fn convert(image: DynamicImage, dither: bool, scale: f32, width: u32, height
         resize_dimensions(rgba.width(), rgba.height(), width / 3, height / 3, false);
     let thumbnail = imageops::thumbnail(
         &rgba,
-        (thumbnail_x as f32 * scale) as u32,
-        (thumbnail_y as f32 * scale) as u32,
+        (thumbnail_x as f64 * scale) as u32,
+        (thumbnail_y as f64 * scale) as u32,
     );
     let mut rgb = ImageBuffer::new(thumbnail.width(), thumbnail.height());
 
@@ -47,6 +49,21 @@ pub fn convert(image: DynamicImage, dither: bool, scale: f32, width: u32, height
     }
 
     rgb
+}
+
+pub fn image_from_clipboard() -> Result<DynamicImage, String> {
+    let xclip = Command::new("sh")
+        .arg("-c")
+        .arg("xclip -o -target image/png -selection clipboard")
+        .output()
+        .expect("failed to execute process");
+
+    image::load_from_memory_with_format(&xclip.stdout, ImageFormat::PNG).map_err(|_| {
+        format!(
+            "Clipboard error: {}",
+            String::from_utf8_lossy(&xclip.stderr)
+        )
+    })
 }
 
 // Copied from image source code

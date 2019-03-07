@@ -1,7 +1,13 @@
-use std::{process, thread};
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread,
+};
 use winit::{ControlFlow, DeviceEvent, Event, EventsLoop, KeyboardInput, VirtualKeyCode};
 
-pub fn start() {
+pub fn start(running: Arc<AtomicBool>) {
     thread::spawn(move || {
         let mut events_loop = EventsLoop::new();
 
@@ -12,8 +18,7 @@ pub fn start() {
                 }) => {
                     if let Some(keycode) = virtual_keycode {
                         if keycode == VirtualKeyCode::Escape {
-                            println!("Exiting because the user pressed Escape");
-                            process::exit(0);
+                            running.store(false, Ordering::Relaxed);
                         }
                     }
 
@@ -24,6 +29,4 @@ pub fn start() {
             _ => ControlFlow::Continue,
         });
     });
-
-    println!("=> Close program with Escape");
 }

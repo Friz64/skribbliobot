@@ -1,11 +1,25 @@
 use crate::{
-    cli::Box,
     colors::{Color, ColorCoord, *},
     desktop::{ClickType, Desktop},
     image_converter::Image,
 };
 use image::Pixel;
-use std::{collections::HashMap, thread, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread,
+    time::Duration,
+};
+
+pub struct Box {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
 
 fn calculate_color_positions(color_box: Box) -> HashMap<Color, ColorCoord> {
     let mut map = HashMap::new();
@@ -52,8 +66,7 @@ fn calculate_color_positions(color_box: Box) -> HashMap<Color, ColorCoord> {
 }
 
 pub struct Drawer {
-    xoff: u32,
-    yoff: u32,
+    drawing_area: Box,
     checkerboard: bool,
     delay: u64,
     color_coords: HashMap<Color, ColorCoord>,
@@ -61,10 +74,9 @@ pub struct Drawer {
 }
 
 impl Drawer {
-    pub fn new(xoff: u32, yoff: u32, checkerboard: bool, delay: u64, color_box: Box) -> Drawer {
+    pub fn new(drawing_area: Box, color_box: Box, checkerboard: bool, delay: u64) -> Drawer {
         Drawer {
-            xoff,
-            yoff,
+            drawing_area,
             checkerboard,
             delay,
             color_coords: calculate_color_positions(color_box),
@@ -72,7 +84,7 @@ impl Drawer {
         }
     }
 
-    pub fn draw(&mut self, desktop: &Desktop, image: &Image) {
+    pub fn draw(&mut self, desktop: &Desktop, image: &Image, drawer_running: Arc<AtomicBool>) {
         let mut draw_queue = DrawQueue::new();
 
         if self.checkerboard {
@@ -90,7 +102,7 @@ impl Drawer {
                 }
             }
 
-            draw_queue.draw(desktop, self);
+            draw_queue.draw(desktop, self, drawer_running.clone());
 
             for y in 0..image.height() {
                 let start = y % 2;
@@ -106,7 +118,7 @@ impl Drawer {
                 }
             }
 
-            draw_queue.draw(desktop, self);
+            draw_queue.draw(desktop, self, drawer_running.clone());
         } else {
             for y in 0..image.height() {
                 for x in 0..image.width() {
@@ -121,10 +133,8 @@ impl Drawer {
                 }
             }
 
-            draw_queue.draw(desktop, self);
+            draw_queue.draw(desktop, self, drawer_running.clone());
         }
-
-        println!("=> Drawing finished");
     }
 }
 
@@ -147,15 +157,19 @@ impl DrawQueue {
         self.queue.insert(0, info);
     }
 
-    fn draw(&mut self, desktop: &Desktop, drawer: &mut Drawer) {
-        self.queue.sort_by(|a, b| {
-            (b.color.r + b.color.g + b.color.b).cmp(&(a.color.r + a.color.g + a.color.b))
-        });
+    fn draw(&mut self, desktop: &Desktop, drawer: &mut Drawer, drawer_running: Arc<AtomicBool>) {
+        self.queue
+            .sort_by(|a, b| a.color.brightness().cmp(&b.color.brightness()));
 
         while let Some(info) = self.queue.pop() {
-            // draw
-            if info.color == WHITE {
+            let running = drawer_running.load(Ordering::Relaxed);
+
+            if !running {
                 return;
+            }
+
+            if info.color == WHITE {
+                continue;
             }
 
             let color_coord = drawer.color_coords[&info.color];
@@ -172,11 +186,17 @@ impl DrawQueue {
             }
 
             // continue drawing with new color
-            desktop.move_cursor(
-                drawer.xoff + (info.x * 3) + 1,
-                drawer.yoff + (info.y * 3) + 1,
-            );
-            desktop.left_click(ClickType::Once);
+            let new_drawing_area_x = (info.x * 3) + 1;
+            let new_drawing_area_y = (info.y * 3) + 1;
+            if new_drawing_area_x <= drawer.drawing_area.width
+                && new_drawing_area_x <= drawer.drawing_area.width
+            {
+                desktop.move_cursor(
+                    drawer.drawing_area.x + new_drawing_area_x,
+                    drawer.drawing_area.y + new_drawing_area_y,
+                );
+                desktop.left_click(ClickType::Once);
+            }
 
             thread::sleep(Duration::from_millis(drawer.delay));
         }

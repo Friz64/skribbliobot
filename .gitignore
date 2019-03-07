@@ -1,3 +1,5 @@
 /target
 **/*.rs.bk
 Cargo.lock
+/src/gui.glade~
+skribbl_settings.json

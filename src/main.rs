@@ -1,56 +1,23 @@
-mod cli;
 mod closing_thread;
 mod colors;
 mod desktop;
 mod drawer;
+mod gui;
 mod image_converter;
+mod settings;
 
 use desktop::Desktop;
-use drawer::Drawer;
-use image::{DynamicImage, ImageFormat};
-use std::process::{self, Command};
+use gui::GUI;
+use settings::Settings;
+use std::sync::{atomic::AtomicBool, Arc};
 
 fn main() {
-    let (drawing_area, color_box, dither, checkerboard, delay, scale) = cli::get_cli();
+    let running = Arc::new(AtomicBool::new(false));
+    closing_thread::start(running.clone());
 
-    closing_thread::start();
-
+    let settings = Settings::load();
     let desktop = Desktop::new();
-    let mut drawer = Drawer::new(
-        drawing_area.x,
-        drawing_area.y,
-        checkerboard,
-        delay,
-        color_box,
-    );
 
-    let image = image_from_clipboard();
-    let converted = image_converter::convert(
-        image,
-        dither,
-        scale,
-        drawing_area.width,
-        drawing_area.height,
-    );
-
-    drawer.draw(&desktop, &converted);
-}
-
-fn image_from_clipboard() -> DynamicImage {
-    let xclip = Command::new("sh")
-        .arg("-c")
-        .arg("xclip -o -target image/png -selection clipboard")
-        .output()
-        .expect("failed to execute process");
-
-    match image::load_from_memory_with_format(&xclip.stdout, ImageFormat::PNG) {
-        Ok(image) => image,
-        _ => {
-            println!(
-                "Failed to load image from clipboard: {}",
-                String::from_utf8_lossy(&xclip.stderr)
-            );
-            process::exit(1);
-        }
-    }
+    let gui = GUI::new(settings, desktop, running);
+    gui.run();
 }

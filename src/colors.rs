@@ -11,6 +11,12 @@ pub struct Color {
     pub b: u8,
 }
 
+impl Color {
+    pub fn brightness(&self) -> u32 {
+        u32::from(self.r) * 212 + u32::from(self.g) * 715 + u32::from(self.b) * 72
+    }
+}
+
 pub const WHITE: Color = Color {
     r: 255,
     g: 255,
