@@ -7,7 +7,14 @@ use std::process::Command;
 
 pub type Image = ImageBuffer<image::Rgb<u8>, Vec<u8>>;
 
-pub fn convert(image: DynamicImage, dither: bool, scale: f64, width: u32, height: u32) -> Image {
+pub fn convert(
+    image: DynamicImage,
+    dither: bool,
+    grayscale: bool,
+    scale: f64,
+    width: u32,
+    height: u32,
+) -> Image {
     let rgba = image.to_rgba();
 
     // canvas is x814y611, but a pixel is 3x3
@@ -18,6 +25,7 @@ pub fn convert(image: DynamicImage, dither: bool, scale: f64, width: u32, height
         (f64::from(thumbnail_x) * scale) as u32,
         (f64::from(thumbnail_y) * scale) as u32,
     );
+
     let mut rgb = ImageBuffer::new(thumbnail.width(), thumbnail.height());
 
     for (rgb_pixel, thumbnail_pixel) in rgb.pixels_mut().zip(thumbnail.pixels()) {
@@ -34,6 +42,14 @@ pub fn convert(image: DynamicImage, dither: bool, scale: f64, width: u32, height
                     thumbnail_pixel_rgba[2],
                 ],
             }
+        }
+    }
+
+    if grayscale {
+        let grayscale = imageops::grayscale(&rgb);
+
+        for (rgb_pixel, grayscale_pixel) in rgb.pixels_mut().zip(grayscale.pixels()) {
+            *rgb_pixel = grayscale_pixel.to_rgb();
         }
     }
 

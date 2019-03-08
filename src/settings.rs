@@ -5,20 +5,6 @@ use std::{
 };
 
 const FILENAME: &str = "skribbl_settings.json";
-pub const DEFAULT: Settings = Settings {
-    drawing_x: 0,
-    drawing_y: 0,
-    drawing_width: 0,
-    drawing_height: 0,
-    color_x: 0,
-    color_y: 0,
-    color_width: 0,
-    color_height: 0,
-    delay: 7.0,
-    scale: 1.0,
-    dither: true,
-    checkerboard: true,
-};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Settings {
@@ -34,6 +20,9 @@ pub struct Settings {
     pub scale: f64,
     pub dither: bool,
     pub checkerboard: bool,
+    // we need to annotate every new setting with this
+    // for it to be able to load old settings
+    pub grayscale: Option<bool>,
 }
 
 impl Settings {
@@ -50,7 +39,7 @@ impl Settings {
         Ok(match serde_json::from_str(&content) {
             Ok(settings) => settings,
             Err(_) => {
-                let default = DEFAULT;
+                let default = Settings::default();
                 default.save()?;
                 default
             }
@@ -61,5 +50,25 @@ impl Settings {
         let content = serde_json::to_string(self).unwrap();
 
         fs::write(FILENAME, &content)
+    }
+}
+
+impl Default for Settings {
+    fn default() -> Settings {
+        Settings {
+            drawing_x: 0,
+            drawing_y: 0,
+            drawing_width: 0,
+            drawing_height: 0,
+            color_x: 0,
+            color_y: 0,
+            color_width: 0,
+            color_height: 0,
+            delay: 7.0,
+            scale: 1.0,
+            dither: true,
+            checkerboard: true,
+            grayscale: Some(false),
+        }
     }
 }

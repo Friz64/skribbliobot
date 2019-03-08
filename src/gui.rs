@@ -2,7 +2,7 @@ use crate::{
     desktop::Desktop,
     drawer::{Box, Drawer},
     image_converter,
-    settings::{Settings, DEFAULT},
+    settings::Settings,
 };
 use gio::prelude::*;
 use gtk::{
@@ -54,6 +54,7 @@ pub struct GUI {
     color_height: Entry,
     dither: CheckButton,
     checkerboard: CheckButton,
+    grayscale: CheckButton,
     delay: Scale,
     scale: Scale,
     status: Arc<Mutex<SafetyWrapper<Label>>>,
@@ -80,7 +81,7 @@ impl GUI {
             Ok(settings) => settings,
             Err(err) => {
                 GUI::set_status(&status, &format!("Failed to read settings: {}", err));
-                DEFAULT
+                Settings::default()
             }
         };
 
@@ -100,6 +101,7 @@ impl GUI {
             color_height: builder.get_object("ColorHeight").unwrap(),
             dither: builder.get_object("Dither").unwrap(),
             checkerboard: builder.get_object("Checkerboard").unwrap(),
+            grayscale: builder.get_object("Grayscale").unwrap(),
             delay: builder.get_object("Delay").unwrap(),
             scale: builder.get_object("Scale").unwrap(),
             status,
@@ -149,6 +151,12 @@ impl GUI {
         self.dither.set_active(self.settings.borrow().dither);
         self.checkerboard
             .set_active(self.settings.borrow().checkerboard);
+        self.grayscale.set_active(
+            self.settings
+                .borrow()
+                .grayscale
+                .unwrap_or_else(|| Settings::default().grayscale.unwrap()),
+        );
     }
 
     fn update_settings(gui: Rc<GUI>) {
@@ -215,6 +223,7 @@ impl GUI {
 
         gui.settings.borrow_mut().dither = gui.dither.get_active();
         gui.settings.borrow_mut().checkerboard = gui.checkerboard.get_active();
+        gui.settings.borrow_mut().grayscale = Some(gui.grayscale.get_active());
     }
 
     fn set_status(label: &Mutex<SafetyWrapper<Label>>, status: &str) {
@@ -285,6 +294,7 @@ impl GUI {
                                 let converted = image_converter::convert(
                                     image,
                                     settings.dither,
+                                    settings.grayscale.unwrap_or(false),
                                     settings.scale,
                                     settings.drawing_width,
                                     settings.drawing_height,
