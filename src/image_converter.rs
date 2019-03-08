@@ -15,8 +15,8 @@ pub fn convert(image: DynamicImage, dither: bool, scale: f64, width: u32, height
         resize_dimensions(rgba.width(), rgba.height(), width / 3, height / 3, false);
     let thumbnail = imageops::thumbnail(
         &rgba,
-        (thumbnail_x as f64 * scale) as u32,
-        (thumbnail_y as f64 * scale) as u32,
+        (f64::from(thumbnail_x) * scale) as u32,
+        (f64::from(thumbnail_y) * scale) as u32,
     );
     let mut rgb = ImageBuffer::new(thumbnail.width(), thumbnail.height());
 

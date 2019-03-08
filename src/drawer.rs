@@ -159,7 +159,7 @@ impl DrawQueue {
 
     fn draw(&mut self, desktop: &Desktop, drawer: &mut Drawer, drawer_running: Arc<AtomicBool>) {
         self.queue
-            .sort_by(|a, b| a.color.brightness().cmp(&b.color.brightness()));
+            .sort_by(|a, b| b.color.brightness().cmp(&a.color.brightness()));
 
         while let Some(info) = self.queue.pop() {
             let running = drawer_running.load(Ordering::Relaxed);
@@ -189,7 +189,7 @@ impl DrawQueue {
             let new_drawing_area_x = (info.x * 3) + 1;
             let new_drawing_area_y = (info.y * 3) + 1;
             if new_drawing_area_x <= drawer.drawing_area.width
-                && new_drawing_area_x <= drawer.drawing_area.width
+                && new_drawing_area_y <= drawer.drawing_area.height
             {
                 desktop.move_cursor(
                     drawer.drawing_area.x + new_drawing_area_x,
