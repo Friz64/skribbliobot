@@ -320,6 +320,15 @@ impl GUI {
                 }
             }
         });
+
+        // 6.5 -> 6.5ms
+        gui.delay
+            .connect_format_value(|_, val| format!("{}ms", val));
+
+        // 0.8 -> 80%
+        // 0.80000000000000001 -> 80%
+        gui.scale
+            .connect_format_value(|_, val| format!("{}%", (val * 100.0).round()));
     }
 
     pub fn run(self) {
