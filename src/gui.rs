@@ -1,5 +1,5 @@
 use crate::{
-    desktop::Desktop,
+    desktop::{ClickType, Desktop},
     drawer::{Box, Drawer},
     image_converter,
     image_downloader::{self, DownloadImageError, ImageDownloader},
@@ -281,6 +281,10 @@ impl GUI {
                                 sender.clone(),
                                 Instruction::UpdateStatus("Drawing - Cancel with ESC".into()),
                             );
+
+                            // focus the drawing window before drawing
+                            desktop.move_cursor(settings.color_x, settings.color_y);
+                            desktop.left_click(ClickType::Once);
 
                             drawer_running.store(true, Ordering::Relaxed);
                             drawer.draw(&desktop, &converted, drawer_running.clone());
