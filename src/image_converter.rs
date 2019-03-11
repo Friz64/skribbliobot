@@ -83,7 +83,13 @@ pub fn image_from_clipboard() -> Result<DynamicImage, String> {
 }
 
 // Copied from image source code
-fn resize_dimensions(width: u32, height: u32, nwidth: u32, nheight: u32, fill: bool) -> (u32, u32) {
+pub fn resize_dimensions(
+    width: u32,
+    height: u32,
+    nwidth: u32,
+    nheight: u32,
+    fill: bool,
+) -> (u32, u32) {
     let ratio = u64::from(width) * u64::from(nheight);
     let nratio = u64::from(nwidth) * u64::from(height);
 

@@ -408,7 +408,7 @@ impl GUI {
                     if current_image_uuid == uuid {
                         let image =
                             image::load_from_memory_with_format(&data, image::ImageFormat::JPEG);
-                        let pixbuf = image_downloader::pixbuf_from_memory(&data, 0.5);
+                        let pixbuf = image_downloader::pixbuf_from_memory(&data);
 
                         if let (Ok(image), Some(pixbuf)) = (image, pixbuf) {
                             gtk.images_store.insert_with_values(None, &[0], &[&pixbuf]);

@@ -1,3 +1,4 @@
+use crate::image_converter;
 use gdk_pixbuf::{prelude::*, Pixbuf, PixbufLoader};
 use regex::Regex;
 use reqwest::Client;
@@ -52,15 +53,25 @@ impl ImageDownloader {
     }
 }
 
-pub fn pixbuf_from_memory(data: &[u8], scale: f32) -> Option<Pixbuf> {
+pub fn pixbuf_from_memory(data: &[u8]) -> Option<Pixbuf> {
     let pixbuf_loader = PixbufLoader::new();
     pixbuf_loader.write(&data).unwrap();
 
     let result = pixbuf_loader.get_pixbuf().map(|pixbuf| {
-        let new_width = (pixbuf.get_width() as f32 * scale) as i32;
-        let new_height = (pixbuf.get_height() as f32 * scale) as i32;
+        let (new_width, new_height) = image_converter::resize_dimensions(
+            pixbuf.get_width() as _,
+            pixbuf.get_height() as _,
+            150,
+            150,
+            false,
+        );
+
         pixbuf
-            .scale_simple(new_width, new_height, gdk_pixbuf::InterpType::Bilinear)
+            .scale_simple(
+                new_width as _,
+                new_height as _,
+                gdk_pixbuf::InterpType::Bilinear,
+            )
             .unwrap()
     });
 
