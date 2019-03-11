@@ -1,9 +1,15 @@
 # skribbliobot
-drawing bot for skribblio written in rust
 
-![Screenshot](screenshot.png)
+A drawing bot for skribblio written in Rust supporting
+
+- Image searcher
+- Dithered, Checkerboard style or grayscale drawing
+
+Example Drawing|GUI
+-|-
+![Drawing](drawing.png)|![Screenshot](screenshot.png)
   
-# Running
+## Running
 
 - Download the latest `skribbliobot` from the github releases
 - Install `xclip`
@@ -13,10 +19,17 @@ drawing bot for skribblio written in rust
 - Select the drawing canvas with box select and note down the size of it (bottom of gimp)
 - Repeat the last two steps for only the white color of the color palette
 - Click the Save Settings button.
-- Search for image on the internet and copy it into your clipboard
-- You can now run the drawer
 
-# For now Windows is not supported because of two reasons:
+## Using
+
+You have two options for image selection:
+
+- Copy an image to the clipboard and don't select anything in the search results
+- Select image in the search results
+
+Click the Run Drawer button to draw the image to skribbl.io
+
+## For now Windows is not supported because
 
 - I don't want to port the image from clipboard function because clipboard transparency on windows is black
 - I think it will hurt the game because this will be an easily obtainable and fast drawer for the majority of desktop users

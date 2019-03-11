@@ -4,6 +4,7 @@ mod desktop;
 mod drawer;
 mod gui;
 mod image_converter;
+mod image_downloader;
 mod settings;
 
 use desktop::Desktop;

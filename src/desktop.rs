@@ -51,6 +51,10 @@ impl Desktop {
     }
 }
 
+// Probably fine, no 2 draw processes are running concurrently
+unsafe impl Send for Desktop {}
+unsafe impl Sync for Desktop {}
+
 impl Drop for Desktop {
     fn drop(&mut self) {
         unsafe {

@@ -2,64 +2,66 @@ use crate::{
     desktop::Desktop,
     drawer::{Box, Drawer},
     image_converter,
+    image_downloader::{self, DownloadImageError, ImageDownloader},
     settings::Settings,
 };
+use gdk_pixbuf::Pixbuf;
 use gio::prelude::*;
+use glib::{MainContext, Receiver, Sender};
 use gtk::{
-    prelude::*, Application, ApplicationWindow, Builder, Button, CheckButton, Entry, Label, Scale,
+    prelude::*, Application, ApplicationWindow, Builder, Button, CheckButton, Entry, IconView,
+    Label, ListStore, Scale, SearchEntry, StaticType,
 };
+use image::DynamicImage;
 use std::{
-    cell::RefCell,
     io,
-    ops::Deref,
-    rc::Rc,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, RwLock,
     },
     thread,
 };
 
-// This is very very very very very very sketchy
-// Desktop and Label both don't implement Send/Sync
-// because they contain pointers which are easy to
-// duplicate and cause segfaults with, but as there
-// is only one copy of them in a mutex, it should
-// be fine, if im not mistaken :)
-struct SafetyWrapper<T>(T);
+#[derive(Clone)]
+enum Message {
+    UpdateSettings,
+    UpdateStatus(String),
+    ClearImages,
+    AddImage(Vec<u8>),
+}
 
-unsafe impl<T> Send for SafetyWrapper<T> {}
-
-impl<T> Deref for SafetyWrapper<T> {
-    type Target = T;
-
-    fn deref(&self) -> &T {
-        &self.0
-    }
+#[derive(Clone)]
+pub struct GTK {
+    pub application: Application,
+    pub window: ApplicationWindow,
+    pub drawing_x: Entry,
+    pub drawing_y: Entry,
+    pub drawing_width: Entry,
+    pub drawing_height: Entry,
+    pub color_x: Entry,
+    pub color_y: Entry,
+    pub color_width: Entry,
+    pub color_height: Entry,
+    pub dither: CheckButton,
+    pub checkerboard: CheckButton,
+    pub grayscale: CheckButton,
+    pub delay: Scale,
+    pub scale: Scale,
+    pub search: SearchEntry,
+    pub images_view: IconView,
+    pub images_store: ListStore,
+    pub status: Label,
+    pub draw: Button,
+    pub save: Button,
 }
 
 pub struct GUI {
-    settings: RefCell<Settings>,
+    sender: Sender<Message>,
+    desktop: Arc<Desktop>,
     drawer_running: Arc<AtomicBool>,
-    desktop: Arc<Mutex<SafetyWrapper<Desktop>>>,
-    application: Application,
-    window: ApplicationWindow,
-    drawing_x: Entry,
-    drawing_y: Entry,
-    drawing_width: Entry,
-    drawing_height: Entry,
-    color_x: Entry,
-    color_y: Entry,
-    color_width: Entry,
-    color_height: Entry,
-    dither: CheckButton,
-    checkerboard: CheckButton,
-    grayscale: CheckButton,
-    delay: Scale,
-    scale: Scale,
-    status: Arc<Mutex<SafetyWrapper<Label>>>,
-    draw: Button,
-    save: Button,
+    settings: Arc<RwLock<Settings>>,
+    images_list: Arc<RwLock<Vec<DynamicImage>>>,
+    gtk: GTK,
 }
 
 impl GUI {
@@ -68,28 +70,31 @@ impl GUI {
         desktop: Desktop,
         drawer_running: Arc<AtomicBool>,
     ) -> GUI {
+        let (sender, receiver) = MainContext::channel(glib::PRIORITY_DEFAULT);
         let application = gtk::Application::new("friz64.skribbliobot", Default::default())
             .expect("Failed to initialize GTK Application");
 
         let glade_src = include_str!("gui.glade");
         let builder = Builder::new_from_string(glade_src);
 
-        let status = Arc::new(Mutex::new(SafetyWrapper(
-            builder.get_object("Status").unwrap(),
-        )));
+        let status: Label = builder.get_object("Status").unwrap();
         let settings = match settings {
             Ok(settings) => settings,
             Err(err) => {
-                GUI::set_status(&status, &format!("Failed to read settings: {}", err));
+                GUI::set_status(status.clone(), &format!("Failed to read settings: {}", err));
                 Settings::default()
             }
         };
+        let settings = Arc::new(RwLock::new(settings));
+        let images_list = Arc::new(RwLock::new(Vec::new()));
 
-        GUI {
-            settings: RefCell::new(settings),
+        let images_store = ListStore::new(&[Pixbuf::static_type()]);
+        let images_view: IconView = builder.get_object("ImagesView").unwrap();
+        images_view.set_model(&images_store);
+        images_view.set_pixbuf_column(0);
+
+        let gtk = GTK {
             application,
-            drawer_running,
-            desktop: Arc::new(Mutex::new(SafetyWrapper(desktop))),
             window: builder.get_object("Window").unwrap(),
             drawing_x: builder.get_object("DrawingX").unwrap(),
             drawing_y: builder.get_object("DrawingY").unwrap(),
@@ -104,184 +109,114 @@ impl GUI {
             grayscale: builder.get_object("Grayscale").unwrap(),
             delay: builder.get_object("Delay").unwrap(),
             scale: builder.get_object("Scale").unwrap(),
+            search: builder.get_object("Search").unwrap(),
+            images_view,
+            images_store,
             status,
             draw: builder.get_object("Draw").unwrap(),
             save: builder.get_object("Save").unwrap(),
+        };
+
+        GUI::set_receiver(receiver, settings.clone(), images_list.clone(), gtk.clone());
+
+        GUI {
+            sender,
+            desktop: Arc::new(desktop),
+            drawer_running,
+            settings,
+            images_list,
+            gtk,
         }
     }
 
-    fn load_values(&self) {
-        if self.settings.borrow().drawing_x != 0 {
-            self.drawing_x
-                .set_text(&self.settings.borrow().drawing_x.to_string());
-        }
-        if self.settings.borrow().drawing_y != 0 {
-            self.drawing_y
-                .set_text(&self.settings.borrow().drawing_y.to_string());
-        }
-        if self.settings.borrow().drawing_width != 0 {
-            self.drawing_width
-                .set_text(&self.settings.borrow().drawing_width.to_string());
-        }
-        if self.settings.borrow().drawing_height != 0 {
-            self.drawing_height
-                .set_text(&self.settings.borrow().drawing_height.to_string());
-        }
+    fn set_triggers(&self) {
+        self.gtk.save.connect_clicked({
+            let settings = self.settings.clone();
+            let sender = self.sender.clone();
 
-        if self.settings.borrow().color_x != 0 {
-            self.color_x
-                .set_text(&self.settings.borrow().color_x.to_string());
-        }
-        if self.settings.borrow().color_y != 0 {
-            self.color_y
-                .set_text(&self.settings.borrow().color_y.to_string());
-        }
-        if self.settings.borrow().color_width != 0 {
-            self.color_width
-                .set_text(&self.settings.borrow().color_width.to_string());
-        }
-        if self.settings.borrow().color_height != 0 {
-            self.color_height
-                .set_text(&self.settings.borrow().color_height.to_string());
-        }
-
-        self.delay.set_value(self.settings.borrow().delay);
-        self.scale.set_value(self.settings.borrow().scale);
-
-        self.dither.set_active(self.settings.borrow().dither);
-        self.checkerboard
-            .set_active(self.settings.borrow().checkerboard);
-        self.grayscale.set_active(
-            self.settings
-                .borrow()
-                .grayscale
-                .unwrap_or_else(|| Settings::default().grayscale.unwrap()),
-        );
-    }
-
-    fn update_settings(gui: Rc<GUI>) {
-        gui.settings.borrow_mut().drawing_x = gui
-            .drawing_x
-            .get_text()
-            .unwrap()
-            .as_str()
-            .parse()
-            .unwrap_or(0);
-        gui.settings.borrow_mut().drawing_y = gui
-            .drawing_y
-            .get_text()
-            .unwrap()
-            .as_str()
-            .parse()
-            .unwrap_or(0);
-        gui.settings.borrow_mut().drawing_height = gui
-            .drawing_height
-            .get_text()
-            .unwrap()
-            .as_str()
-            .parse()
-            .unwrap_or(0);
-        gui.settings.borrow_mut().drawing_width = gui
-            .drawing_width
-            .get_text()
-            .unwrap()
-            .as_str()
-            .parse()
-            .unwrap_or(0);
-
-        gui.settings.borrow_mut().color_x = gui
-            .color_x
-            .get_text()
-            .unwrap()
-            .as_str()
-            .parse()
-            .unwrap_or(0);
-        gui.settings.borrow_mut().color_y = gui
-            .color_y
-            .get_text()
-            .unwrap()
-            .as_str()
-            .parse()
-            .unwrap_or(0);
-        gui.settings.borrow_mut().color_height = gui
-            .color_height
-            .get_text()
-            .unwrap()
-            .as_str()
-            .parse()
-            .unwrap_or(0);
-        gui.settings.borrow_mut().color_width = gui
-            .color_width
-            .get_text()
-            .unwrap()
-            .as_str()
-            .parse()
-            .unwrap_or(0);
-
-        gui.settings.borrow_mut().delay = gui.delay.get_value();
-        gui.settings.borrow_mut().scale = gui.scale.get_value();
-
-        gui.settings.borrow_mut().dither = gui.dither.get_active();
-        gui.settings.borrow_mut().checkerboard = gui.checkerboard.get_active();
-        gui.settings.borrow_mut().grayscale = Some(gui.grayscale.get_active());
-    }
-
-    fn set_status(label: &Mutex<SafetyWrapper<Label>>, status: &str) {
-        let lock = label.lock().unwrap();
-        lock.set_text(&format!("Status: {}", status));
-    }
-
-    fn is_ready(gui: Rc<GUI>) -> bool {
-        gui.settings.borrow().drawing_x != 0
-            && gui.settings.borrow().drawing_y != 0
-            && gui.settings.borrow().drawing_width != 0
-            && gui.settings.borrow().drawing_height != 0
-            && gui.settings.borrow().color_x != 0
-            && gui.settings.borrow().color_y != 0
-            && gui.settings.borrow().color_width != 0
-            && gui.settings.borrow().color_height != 0
-    }
-
-    fn set_triggers(gui: Rc<GUI>) {
-        gui.save.connect_clicked({
-            let gui = gui.clone();
             move |_| {
-                GUI::update_settings(gui.clone());
-                if let Err(err) = gui.settings.borrow().save() {
-                    GUI::set_status(&gui.status, &format!("Failed to write settings: {}", err));
-                };
+                let settings = settings.clone();
+                let sender = sender.clone();
+
+                thread::spawn(move || {
+                    sender.clone().send(Message::UpdateSettings).unwrap();
+
+                    // wait for the settings to be updated
+                    thread::sleep(std::time::Duration::from_millis(10));
+
+                    let settings = settings.read().unwrap();
+                    if let Err(err) = settings.save() {
+                        sender
+                            .clone()
+                            .send(Message::UpdateStatus(format!(
+                                "Failed to write settings: {}",
+                                err
+                            )))
+                            .unwrap();
+                    };
+                });
             }
         });
 
-        gui.draw.connect_clicked({
-            let gui = gui.clone();
-            let drawer_running = gui.drawer_running.clone();
+        self.gtk.draw.connect_clicked({
+            let gtk = self.gtk.clone();
+            let settings = self.settings.clone();
+            let drawer_running = self.drawer_running.clone();
+            let images_list = self.images_list.clone();
+            let desktop = self.desktop.clone();
+            let sender = self.sender.clone();
 
             move |_| {
-                GUI::update_settings(gui.clone());
+                let gtk = gtk.clone();
+                let settings = settings.clone();
+                let drawer_running = drawer_running.clone();
+                let images_list = images_list.clone();
+                let desktop = desktop.clone();
+                let sender = sender.clone();
 
-                let status = gui.status.clone();
+                let image = gtk
+                    .images_view
+                    .get_selected_items()
+                    .get(0)
+                    .map(|tree_path| {
+                        let index = images_list.read().unwrap()
+                            [tree_path.get_indices()[0] as usize]
+                            .clone();
+                        Some(index)
+                    });
 
-                if GUI::is_ready(gui.clone()) {
-                    let drawer_running = drawer_running.clone();
-                    let settings = gui.settings.borrow().clone();
-                    let desktop = gui.desktop.clone();
+                thread::spawn(move || {
+                    sender.clone().send(Message::UpdateSettings).unwrap();
 
-                    let drawing_area = Box {
-                        x: settings.drawing_x,
-                        y: settings.drawing_y,
-                        width: settings.drawing_width,
-                        height: settings.drawing_height,
-                    };
+                    // wait for the settings to be updated
+                    thread::sleep(std::time::Duration::from_millis(10));
 
-                    let color_box = Box {
-                        x: settings.color_x,
-                        y: settings.color_y,
-                        width: settings.color_width,
-                        height: settings.color_height,
-                    };
+                    let settings = settings.read().unwrap();
+                    if GUI::is_ready(&settings) {
+                        let drawing_area = Box {
+                            x: settings.drawing_x,
+                            y: settings.drawing_y,
+                            width: settings.drawing_width,
+                            height: settings.drawing_height,
+                        };
 
-                    thread::spawn(move || {
+                        let color_box = Box {
+                            x: settings.color_x,
+                            y: settings.color_y,
+                            width: settings.color_width,
+                            height: settings.color_height,
+                        };
+
+                        let image = image.unwrap_or_else(|| {
+                            match image_converter::image_from_clipboard() {
+                                Ok(image) => Some(image),
+                                Err(err) => {
+                                    sender.clone().send(Message::UpdateStatus(err)).unwrap();
+                                    None
+                                }
+                            }
+                        });
+
                         let mut drawer = Drawer::new(
                             drawing_area,
                             color_box,
@@ -289,63 +224,156 @@ impl GUI {
                             settings.delay as u64,
                         );
 
-                        match image_converter::image_from_clipboard() {
-                            Ok(image) => {
-                                let converted = image_converter::convert(
-                                    image,
-                                    settings.dither,
-                                    settings.grayscale.unwrap_or(false),
-                                    settings.scale,
-                                    settings.drawing_width,
-                                    settings.drawing_height,
-                                );
+                        if let Some(image) = image {
+                            let converted = image_converter::convert(
+                                image,
+                                settings.dither,
+                                settings.grayscale.unwrap_or(false),
+                                settings.scale,
+                                settings.drawing_width,
+                                settings.drawing_height,
+                            );
 
-                                GUI::set_status(&status, "Drawing - Cancel with ESC");
+                            sender
+                                .clone()
+                                .send(Message::UpdateStatus("Drawing - Cancel with ESC".into()))
+                                .unwrap();
 
-                                let desktop_lock = desktop.lock().unwrap();
+                            drawer_running.store(true, Ordering::Relaxed);
+                            drawer.draw(&desktop, &converted, drawer_running.clone());
+                            drawer_running.store(false, Ordering::Relaxed);
 
-                                drawer_running.store(true, Ordering::Relaxed);
-                                drawer.draw(&desktop_lock, &converted, drawer_running.clone());
-                                drawer_running.store(false, Ordering::Relaxed);
-
-                                GUI::set_status(&status, "Idle");
-                            }
-                            Err(err) => {
-                                GUI::set_status(&status, &err.to_string());
-                            }
-                        };
-                    });
-                } else {
-                    GUI::set_status(&status, "Please enter positions");
-                }
+                            sender
+                                .clone()
+                                .send(Message::UpdateStatus("Idle".into()))
+                                .unwrap();
+                        }
+                    } else {
+                        sender
+                            .clone()
+                            .send(Message::UpdateStatus("Please enter positions".into()))
+                            .unwrap();
+                    }
+                });
             }
         });
 
         // 6.5 -> 6.5ms
-        gui.delay
+        self.gtk
+            .delay
             .connect_format_value(|_, val| format!("{}ms", val));
 
         // 0.8 -> 80%
         // 0.80000000000000001 -> 80%
-        gui.scale
+        self.gtk
+            .scale
             .connect_format_value(|_, val| format!("{}%", (val * 100.0).round()));
+
+        self.gtk.search.connect_activate({
+            let images_list = self.images_list.clone();
+            let sender = self.sender.clone();
+
+            move |search| {
+                let images_list = images_list.clone();
+                let sender = sender.clone();
+
+                let text = search.get_text().unwrap();
+                let text = text.as_str().to_string();
+
+                thread::spawn(move || {
+                    images_list.write().unwrap().clear();
+
+                    match ImageDownloader::new(&text) {
+                        Ok(mut image_downloader) => {
+                            sender.clone().send(Message::ClearImages).unwrap();
+
+                            loop {
+                                match image_downloader.download_image() {
+                                    Ok(image) => {
+                                        sender.clone().send(Message::AddImage(image)).unwrap()
+                                    }
+                                    Err(err) => match err {
+                                        DownloadImageError::Error(err) => {
+                                            sender
+                                                .clone()
+                                                .send(Message::UpdateStatus(err))
+                                                .unwrap();
+                                        }
+                                        DownloadImageError::NoImagesLeft => break,
+                                    },
+                                }
+                            }
+                        }
+                        Err(err) => sender
+                            .clone()
+                            .send(Message::UpdateStatus(err.to_string()))
+                            .unwrap(),
+                    }
+                });
+            }
+        });
+    }
+
+    fn is_ready(settings: &Settings) -> bool {
+        settings.drawing_x != 0
+            && settings.drawing_y != 0
+            && settings.drawing_width != 0
+            && settings.drawing_height != 0
+            && settings.color_x != 0
+            && settings.color_y != 0
+            && settings.color_width != 0
+            && settings.color_height != 0
+    }
+
+    fn set_status(label: Label, status: &str) {
+        label.set_text(&format!("Status: {}", status));
+    }
+
+    fn set_receiver(
+        receiver: Receiver<Message>,
+        settings: Arc<RwLock<Settings>>,
+        images_list: Arc<RwLock<Vec<DynamicImage>>>,
+        gtk: GTK,
+    ) {
+        receiver.attach(None, move |msg| {
+            let label = gtk.status.clone();
+
+            match msg {
+                Message::UpdateSettings => settings.write().unwrap().load_from_gtk(gtk.clone()),
+                Message::UpdateStatus(status) => GUI::set_status(label, &status),
+                Message::ClearImages => {
+                    images_list.write().unwrap().clear();
+
+                    gtk.images_store.clear()
+                }
+                Message::AddImage(data) => {
+                    let image =
+                        image::load_from_memory_with_format(&data, image::ImageFormat::JPEG);
+                    let pixbuf = image_downloader::pixbuf_from_memory(&data, 0.5);
+
+                    if let (Ok(image), Some(pixbuf)) = (image, pixbuf) {
+                        gtk.images_store.insert_with_values(None, &[0], &[&pixbuf]);
+                        images_list.write().unwrap().push(image);
+                    }
+                }
+            };
+
+            glib::Continue(true)
+        });
     }
 
     pub fn run(self) {
-        self.load_values();
+        self.gtk.application.connect_activate({
+            self.settings.write().unwrap().save_to_gtk(self.gtk.clone());
+            self.set_triggers();
 
-        let gui = Rc::new(self);
-        GUI::set_triggers(gui.clone());
-
-        gui.clone().application.connect_activate({
-            let gui = gui.clone();
-
+            let window = self.gtk.window.clone();
             move |app| {
-                gui.window.set_application(app);
-                gui.window.show_all();
+                window.set_application(app);
+                window.show_all();
             }
         });
 
-        gui.application.run(&[]);
+        self.gtk.application.run(&[]);
     }
 }
