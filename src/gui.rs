@@ -20,14 +20,53 @@ use std::{
         Arc, RwLock,
     },
     thread,
+    time::Duration,
 };
+use uuid::Uuid;
 
 #[derive(Clone)]
-enum Message {
+enum Instruction {
     UpdateSettings,
     UpdateStatus(String),
-    ClearImages,
-    AddImage(Vec<u8>),
+    NewImages(Uuid),
+    AddImage(Uuid, Vec<u8>),
+}
+
+#[derive(Clone)]
+struct Message {
+    uuid: Option<Uuid>,
+    instruction: Instruction,
+}
+
+impl Message {
+    fn send(sender: Sender<Message>, instruction: Instruction) {
+        let message = Message {
+            uuid: None,
+            instruction,
+        };
+
+        sender.send(message).unwrap();
+    }
+
+    fn send_waiting(
+        sender: Sender<Message>,
+        uuid_list: Arc<RwLock<Vec<Uuid>>>,
+        instruction: Instruction,
+    ) {
+        let uuid = Uuid::new_v4();
+
+        let message = Message {
+            uuid: Some(uuid),
+            instruction,
+        };
+
+        sender.send(message).unwrap();
+
+        // wait for the message to be processed
+        while !uuid_list.read().unwrap().contains(&uuid) {
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -57,6 +96,7 @@ pub struct GTK {
 
 pub struct GUI {
     sender: Sender<Message>,
+    uuid_list: Arc<RwLock<Vec<Uuid>>>,
     desktop: Arc<Desktop>,
     drawer_running: Arc<AtomicBool>,
     settings: Arc<RwLock<Settings>>,
@@ -87,6 +127,7 @@ impl GUI {
         };
         let settings = Arc::new(RwLock::new(settings));
         let images_list = Arc::new(RwLock::new(Vec::new()));
+        let uuid_list = Arc::new(RwLock::new(Vec::new()));
 
         let images_store = ListStore::new(&[Pixbuf::static_type()]);
         let images_view: IconView = builder.get_object("ImagesView").unwrap();
@@ -117,10 +158,17 @@ impl GUI {
             save: builder.get_object("Save").unwrap(),
         };
 
-        GUI::set_receiver(receiver, settings.clone(), images_list.clone(), gtk.clone());
+        GUI::set_receiver(
+            receiver,
+            settings.clone(),
+            images_list.clone(),
+            uuid_list.clone(),
+            gtk.clone(),
+        );
 
         GUI {
             sender,
+            uuid_list,
             desktop: Arc::new(desktop),
             drawer_running,
             settings,
@@ -133,26 +181,22 @@ impl GUI {
         self.gtk.save.connect_clicked({
             let settings = self.settings.clone();
             let sender = self.sender.clone();
+            let uuid_list = self.uuid_list.clone();
 
             move |_| {
                 let settings = settings.clone();
                 let sender = sender.clone();
+                let uuid_list = uuid_list.clone();
 
                 thread::spawn(move || {
-                    sender.clone().send(Message::UpdateSettings).unwrap();
-
-                    // wait for the settings to be updated
-                    thread::sleep(std::time::Duration::from_millis(10));
+                    Message::send_waiting(sender.clone(), uuid_list, Instruction::UpdateSettings);
 
                     let settings = settings.read().unwrap();
                     if let Err(err) = settings.save() {
-                        sender
-                            .clone()
-                            .send(Message::UpdateStatus(format!(
-                                "Failed to write settings: {}",
-                                err
-                            )))
-                            .unwrap();
+                        Message::send(
+                            sender.clone(),
+                            Instruction::UpdateStatus(format!("Failed to write settings: {}", err)),
+                        );
                     };
                 });
             }
@@ -165,6 +209,7 @@ impl GUI {
             let images_list = self.images_list.clone();
             let desktop = self.desktop.clone();
             let sender = self.sender.clone();
+            let uuid_list = self.uuid_list.clone();
 
             move |_| {
                 let gtk = gtk.clone();
@@ -173,6 +218,7 @@ impl GUI {
                 let images_list = images_list.clone();
                 let desktop = desktop.clone();
                 let sender = sender.clone();
+                let uuid_list = uuid_list.clone();
 
                 let image = gtk
                     .images_view
@@ -186,10 +232,7 @@ impl GUI {
                     });
 
                 thread::spawn(move || {
-                    sender.clone().send(Message::UpdateSettings).unwrap();
-
-                    // wait for the settings to be updated
-                    thread::sleep(std::time::Duration::from_millis(10));
+                    Message::send_waiting(sender.clone(), uuid_list, Instruction::UpdateSettings);
 
                     let settings = settings.read().unwrap();
                     if GUI::is_ready(&settings) {
@@ -211,7 +254,7 @@ impl GUI {
                             match image_converter::image_from_clipboard() {
                                 Ok(image) => Some(image),
                                 Err(err) => {
-                                    sender.clone().send(Message::UpdateStatus(err)).unwrap();
+                                    Message::send(sender.clone(), Instruction::UpdateStatus(err));
                                     None
                                 }
                             }
@@ -234,25 +277,22 @@ impl GUI {
                                 settings.drawing_height,
                             );
 
-                            sender
-                                .clone()
-                                .send(Message::UpdateStatus("Drawing - Cancel with ESC".into()))
-                                .unwrap();
+                            Message::send(
+                                sender.clone(),
+                                Instruction::UpdateStatus("Drawing - Cancel with ESC".into()),
+                            );
 
                             drawer_running.store(true, Ordering::Relaxed);
                             drawer.draw(&desktop, &converted, drawer_running.clone());
                             drawer_running.store(false, Ordering::Relaxed);
 
-                            sender
-                                .clone()
-                                .send(Message::UpdateStatus("Idle".into()))
-                                .unwrap();
+                            Message::send(sender.clone(), Instruction::UpdateStatus("Idle".into()));
                         }
                     } else {
-                        sender
-                            .clone()
-                            .send(Message::UpdateStatus("Please enter positions".into()))
-                            .unwrap();
+                        Message::send(
+                            sender.clone(),
+                            Instruction::UpdateStatus("Please enter positions".into()),
+                        );
                     }
                 });
             }
@@ -272,10 +312,12 @@ impl GUI {
         self.gtk.search.connect_activate({
             let images_list = self.images_list.clone();
             let sender = self.sender.clone();
+            let uuid_list = self.uuid_list.clone();
 
             move |search| {
                 let images_list = images_list.clone();
                 let sender = sender.clone();
+                let uuid_list = uuid_list.clone();
 
                 let text = search.get_text().unwrap();
                 let text = text.as_str().to_string();
@@ -285,29 +327,37 @@ impl GUI {
 
                     match ImageDownloader::new(&text) {
                         Ok(mut image_downloader) => {
-                            sender.clone().send(Message::ClearImages).unwrap();
+                            let uuid = Uuid::new_v4();
+
+                            Message::send_waiting(
+                                sender.clone(),
+                                uuid_list.clone(),
+                                Instruction::NewImages(uuid),
+                            );
 
                             loop {
                                 match image_downloader.download_image() {
                                     Ok(image) => {
-                                        sender.clone().send(Message::AddImage(image)).unwrap()
+                                        Message::send_waiting(
+                                            sender.clone(),
+                                            uuid_list.clone(),
+                                            Instruction::AddImage(uuid, image),
+                                        );
                                     }
                                     Err(err) => match err {
-                                        DownloadImageError::Error(err) => {
-                                            sender
-                                                .clone()
-                                                .send(Message::UpdateStatus(err))
-                                                .unwrap();
-                                        }
+                                        DownloadImageError::Error(err) => Message::send(
+                                            sender.clone(),
+                                            Instruction::UpdateStatus(err),
+                                        ),
                                         DownloadImageError::NoImagesLeft => break,
                                     },
                                 }
                             }
                         }
-                        Err(err) => sender
-                            .clone()
-                            .send(Message::UpdateStatus(err.to_string()))
-                            .unwrap(),
+                        Err(err) => Message::send(
+                            sender.clone(),
+                            Instruction::UpdateStatus(err.to_string()),
+                        ),
                     }
                 });
             }
@@ -333,30 +383,40 @@ impl GUI {
         receiver: Receiver<Message>,
         settings: Arc<RwLock<Settings>>,
         images_list: Arc<RwLock<Vec<DynamicImage>>>,
+        uuid_list: Arc<RwLock<Vec<Uuid>>>,
         gtk: GTK,
     ) {
+        let mut current_image_uuid = Uuid::nil();
+
         receiver.attach(None, move |msg| {
             let label = gtk.status.clone();
 
-            match msg {
-                Message::UpdateSettings => settings.write().unwrap().load_from_gtk(gtk.clone()),
-                Message::UpdateStatus(status) => GUI::set_status(label, &status),
-                Message::ClearImages => {
+            match msg.instruction {
+                Instruction::UpdateSettings => settings.write().unwrap().load_from_gtk(gtk.clone()),
+                Instruction::UpdateStatus(status) => GUI::set_status(label, &status),
+                Instruction::NewImages(uuid) => {
                     images_list.write().unwrap().clear();
+                    gtk.images_store.clear();
 
-                    gtk.images_store.clear()
+                    current_image_uuid = uuid;
                 }
-                Message::AddImage(data) => {
-                    let image =
-                        image::load_from_memory_with_format(&data, image::ImageFormat::JPEG);
-                    let pixbuf = image_downloader::pixbuf_from_memory(&data, 0.5);
+                Instruction::AddImage(uuid, data) => {
+                    if current_image_uuid == uuid {
+                        let image =
+                            image::load_from_memory_with_format(&data, image::ImageFormat::JPEG);
+                        let pixbuf = image_downloader::pixbuf_from_memory(&data, 0.5);
 
-                    if let (Ok(image), Some(pixbuf)) = (image, pixbuf) {
-                        gtk.images_store.insert_with_values(None, &[0], &[&pixbuf]);
-                        images_list.write().unwrap().push(image);
+                        if let (Ok(image), Some(pixbuf)) = (image, pixbuf) {
+                            gtk.images_store.insert_with_values(None, &[0], &[&pixbuf]);
+                            images_list.write().unwrap().push(image);
+                        }
                     }
                 }
             };
+
+            if let Some(uuid) = msg.uuid {
+                uuid_list.write().unwrap().push(uuid);
+            }
 
             glib::Continue(true)
         });
