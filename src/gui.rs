@@ -86,6 +86,7 @@ pub struct GTK {
     pub grayscale: CheckButton,
     pub delay: Scale,
     pub scale: Scale,
+    pub step: Scale,
     pub search: SearchEntry,
     pub images_view: IconView,
     pub images_store: ListStore,
@@ -150,6 +151,7 @@ impl GUI {
             grayscale: builder.get_object("Grayscale").unwrap(),
             delay: builder.get_object("Delay").unwrap(),
             scale: builder.get_object("Scale").unwrap(),
+            step: builder.get_object("Step").unwrap(),
             search: builder.get_object("Search").unwrap(),
             images_view,
             images_store,
@@ -265,6 +267,7 @@ impl GUI {
                             color_box,
                             settings.checkerboard,
                             settings.delay as u64,
+                            settings.step.unwrap(),
                         );
 
                         if let Some(image) = image {

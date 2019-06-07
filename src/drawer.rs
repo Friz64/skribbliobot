@@ -69,16 +69,24 @@ pub struct Drawer {
     drawing_area: Box,
     checkerboard: bool,
     delay: u64,
+    step: f64,
     color_coords: HashMap<Color, ColorCoord>,
     last_color: ColorCoord,
 }
 
 impl Drawer {
-    pub fn new(drawing_area: Box, color_box: Box, checkerboard: bool, delay: u64) -> Drawer {
+    pub fn new(
+        drawing_area: Box,
+        color_box: Box,
+        checkerboard: bool,
+        delay: u64,
+        step: f64,
+    ) -> Drawer {
         Drawer {
             drawing_area,
             checkerboard,
             delay,
+            step,
             color_coords: calculate_color_positions(color_box),
             last_color: ColorCoord { x: 0, y: 0 },
         }
@@ -186,8 +194,8 @@ impl DrawQueue {
             }
 
             // continue drawing with new color
-            let new_drawing_area_x = (info.x * 3) + 1;
-            let new_drawing_area_y = (info.y * 3) + 1;
+            let new_drawing_area_x = ((f64::from(info.x) * drawer.step) + 1.0).round() as u32;
+            let new_drawing_area_y = ((f64::from(info.y) * drawer.step) + 1.0).round() as u32;
             if new_drawing_area_x <= drawer.drawing_area.width
                 && new_drawing_area_y <= drawer.drawing_area.height
             {

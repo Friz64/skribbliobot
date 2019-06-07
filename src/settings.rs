@@ -20,6 +20,7 @@ pub struct Settings {
     pub color_height: u32,
     pub delay: f64,
     pub scale: f64,
+    pub step: Option<f64>,
     pub dither: bool,
     pub checkerboard: bool,
     // we need to annotate every new setting with this
@@ -84,6 +85,10 @@ impl Settings {
 
         gtk.delay.set_value(self.delay);
         gtk.scale.set_value(self.scale);
+        gtk.step.set_value(
+            self.step
+                .unwrap_or_else(|| Settings::default().step.unwrap()),
+        );
 
         gtk.dither.set_active(self.dither);
         gtk.checkerboard.set_active(self.checkerboard);
@@ -154,6 +159,7 @@ impl Settings {
 
         self.delay = gtk.delay.get_value();
         self.scale = gtk.scale.get_value();
+        self.step = Some(gtk.step.get_value());
         self.dither = gtk.dither.get_active();
         self.checkerboard = gtk.checkerboard.get_active();
         self.grayscale = Some(gtk.grayscale.get_active());
@@ -173,6 +179,7 @@ impl Default for Settings {
             color_height: 0,
             delay: 7.0,
             scale: 1.0,
+            step: Some(3.0),
             dither: true,
             checkerboard: true,
             grayscale: Some(false),
