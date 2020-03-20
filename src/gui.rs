@@ -10,7 +10,7 @@ use gio::prelude::*;
 use glib::{MainContext, Receiver, Sender};
 use gtk::{
     prelude::*, Application, ApplicationWindow, Builder, Button, CheckButton, Entry, IconView,
-    Label, ListStore, Scale, SearchEntry, StaticType,
+    Label, ListStore, Scale, SearchEntry,
 };
 use image::DynamicImage;
 use std::{
@@ -112,7 +112,7 @@ impl GUI {
         drawer_running: Arc<AtomicBool>,
     ) -> GUI {
         let (sender, receiver) = MainContext::channel(glib::PRIORITY_DEFAULT);
-        let application = gtk::Application::new("friz64.skribbliobot", Default::default())
+        let application = gtk::Application::new(Some("friz64.skribbliobot"), Default::default())
             .expect("Failed to initialize GTK Application");
 
         let glade_src = include_str!("gui.glade");
@@ -132,7 +132,7 @@ impl GUI {
 
         let images_store = ListStore::new(&[Pixbuf::static_type()]);
         let images_view: IconView = builder.get_object("ImagesView").unwrap();
-        images_view.set_model(&images_store);
+        images_view.set_model(Some(&images_store));
         images_view.set_pixbuf_column(0);
 
         let gtk = GTK {
@@ -410,7 +410,7 @@ impl GUI {
                 Instruction::AddImage(uuid, data) => {
                     if current_image_uuid == uuid {
                         let image =
-                            image::load_from_memory_with_format(&data, image::ImageFormat::JPEG);
+                            image::load_from_memory_with_format(&data, image::ImageFormat::Jpeg);
                         let pixbuf = image_downloader::pixbuf_from_memory(&data);
 
                         if let (Ok(image), Some(pixbuf)) = (image, pixbuf) {
@@ -436,7 +436,7 @@ impl GUI {
 
             let window = self.gtk.window.clone();
             move |app| {
-                window.set_application(app);
+                window.set_application(Some(app));
                 window.show_all();
             }
         });

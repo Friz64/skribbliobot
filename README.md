@@ -28,8 +28,3 @@ You have two options for image selection:
 - Select image in the search results
 
 Click the Run Drawer button to draw the image to skribbl.io
-
-## For now Windows is not supported because
-
-- I don't want to port the image from clipboard function because clipboard transparency on windows is black
-- I think it will hurt the game because this will be an easily obtainable and fast drawer for the majority of desktop users

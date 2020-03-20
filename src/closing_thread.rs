@@ -5,13 +5,18 @@ use std::{
     },
     thread,
 };
-use winit::{ControlFlow, DeviceEvent, Event, EventsLoop, KeyboardInput, VirtualKeyCode};
+use winit::{
+    event::{DeviceEvent, Event, KeyboardInput, StartCause, VirtualKeyCode},
+    event_loop::{ControlFlow, EventLoop},
+    platform::unix::EventLoopExtUnix,
+};
 
 pub fn start(running: Arc<AtomicBool>) {
     thread::spawn(move || {
-        let mut events_loop = EventsLoop::new();
+        let event_loop = EventLoop::<()>::new_any_thread();
 
-        events_loop.run_forever(|event| match event {
+        event_loop.run(move |event, _, control_flow| match event {
+            Event::NewEvents(StartCause::Init) => *control_flow = ControlFlow::Wait,
             Event::DeviceEvent { event, .. } => match event {
                 DeviceEvent::Key(KeyboardInput {
                     virtual_keycode, ..
@@ -21,12 +26,10 @@ pub fn start(running: Arc<AtomicBool>) {
                             running.store(false, Ordering::Relaxed);
                         }
                     }
-
-                    ControlFlow::Continue
                 }
-                _ => ControlFlow::Continue,
+                _ => (),
             },
-            _ => ControlFlow::Continue,
+            _ => (),
         });
     });
 }

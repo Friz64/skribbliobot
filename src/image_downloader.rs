@@ -1,7 +1,7 @@
 use crate::image_converter;
 use gdk_pixbuf::{prelude::*, Pixbuf, PixbufLoader};
 use regex::Regex;
-use reqwest::Client;
+use reqwest::blocking::Client;
 use std::io::Read;
 
 pub enum DownloadImageError {

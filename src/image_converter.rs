@@ -29,19 +29,15 @@ pub fn convert(
     let mut rgb = ImageBuffer::new(thumbnail.width(), thumbnail.height());
 
     for (rgb_pixel, thumbnail_pixel) in rgb.pixels_mut().zip(thumbnail.pixels()) {
-        let thumbnail_pixel_rgba = thumbnail_pixel.to_rgba().data;
+        let thumbnail_pixel_rgba = thumbnail_pixel.to_rgba().0;
         *rgb_pixel = if thumbnail_pixel_rgba[3] != 255 {
-            Rgb {
-                data: [255, 255, 255],
-            }
+            Rgb([255, 255, 255])
         } else {
-            Rgb {
-                data: [
-                    thumbnail_pixel_rgba[0],
-                    thumbnail_pixel_rgba[1],
-                    thumbnail_pixel_rgba[2],
-                ],
-            }
+            Rgb([
+                thumbnail_pixel_rgba[0],
+                thumbnail_pixel_rgba[1],
+                thumbnail_pixel_rgba[2],
+            ])
         }
     }
 
@@ -74,7 +70,7 @@ pub fn image_from_clipboard() -> Result<DynamicImage, String> {
         .output()
         .expect("failed to execute process");
 
-    image::load_from_memory_with_format(&xclip.stdout, ImageFormat::PNG).map_err(|_| {
+    image::load_from_memory_with_format(&xclip.stdout, ImageFormat::Png).map_err(|_| {
         format!(
             "Clipboard error: {}",
             String::from_utf8_lossy(&xclip.stderr)
@@ -134,36 +130,36 @@ impl ColorMap for SkribblColorMap {
 
     fn map_color(&self, color: &mut Rgb<u8>) {
         let mut diffs = vec![
-            difference(color.data, WHITE),
-            difference(color.data, LIGHT_GREY),
-            difference(color.data, LIGHT_RED),
-            difference(color.data, LIGHT_ORANGE),
-            difference(color.data, LIGHT_YELLOW),
-            difference(color.data, LIGHT_GREEN),
-            difference(color.data, LIGHT_CYAN),
-            difference(color.data, LIGHT_BLUE),
-            difference(color.data, LIGHT_MAGENTA),
-            difference(color.data, LIGHT_PINK),
-            difference(color.data, LIGHT_BROWN),
-            difference(color.data, BLACK),
-            difference(color.data, DARK_GREY),
-            difference(color.data, DARK_RED),
-            difference(color.data, DARK_ORANGE),
-            difference(color.data, DARK_YELLOW),
-            difference(color.data, DARK_GREEN),
-            difference(color.data, DARK_CYAN),
-            difference(color.data, DARK_BLUE),
-            difference(color.data, DARK_MAGENTA),
-            difference(color.data, DARK_PINK),
-            difference(color.data, DARK_BROWN),
+            difference(color.0, WHITE),
+            difference(color.0, LIGHT_GREY),
+            difference(color.0, LIGHT_RED),
+            difference(color.0, LIGHT_ORANGE),
+            difference(color.0, LIGHT_YELLOW),
+            difference(color.0, LIGHT_GREEN),
+            difference(color.0, LIGHT_CYAN),
+            difference(color.0, LIGHT_BLUE),
+            difference(color.0, LIGHT_MAGENTA),
+            difference(color.0, LIGHT_PINK),
+            difference(color.0, LIGHT_BROWN),
+            difference(color.0, BLACK),
+            difference(color.0, DARK_GREY),
+            difference(color.0, DARK_RED),
+            difference(color.0, DARK_ORANGE),
+            difference(color.0, DARK_YELLOW),
+            difference(color.0, DARK_GREEN),
+            difference(color.0, DARK_CYAN),
+            difference(color.0, DARK_BLUE),
+            difference(color.0, DARK_MAGENTA),
+            difference(color.0, DARK_PINK),
+            difference(color.0, DARK_BROWN),
         ];
 
         diffs.sort_by(|a, b| a.0.cmp(&b.0));
 
         let best_color = &diffs[0].1;
-        color.data[0] = best_color.r;
-        color.data[1] = best_color.g;
-        color.data[2] = best_color.b;
+        color.0[0] = best_color.r;
+        color.0[1] = best_color.g;
+        color.0[2] = best_color.b;
     }
 }
 

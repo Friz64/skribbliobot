@@ -171,7 +171,6 @@ impl DrawQueue {
 
         while let Some(info) = self.queue.pop() {
             let running = drawer_running.load(Ordering::Relaxed);
-
             if !running {
                 return;
             }
